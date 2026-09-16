@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "subjects": 9,
+  "metric_rows": 18,
+  "input_files": 18,
+  "imagery_runs": 108,
+  "retained_evaluation_trials": 2368,
+  "checkpoint_predictions_reproduced": true
+}

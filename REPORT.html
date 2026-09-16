@@ -1,0 +1,107 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Understanding EEG motor imagery</title><style>
+body{margin:0;background:#f3f5f6;color:#202c35;font:17px/1.7 system-ui,sans-serif}
+main{max-width:920px;margin:32px auto;background:white;padding:48px 56px;border-top:6px solid #397b8a}
+h1{font-size:34px;line-height:1.2}h2{font-size:23px;margin-top:44px;color:#275967}
+a{color:#126f87}code{font-size:.9em;background:#edf3f5;padding:2px 4px;border-radius:3px}
+pre{overflow:auto;background:#edf3f5;padding:18px;line-height:1.5}pre code{padding:0}
+.table-wrap{overflow-x:auto}table{border-collapse:collapse;font-size:15px;width:100%}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid #d8e3e7;vertical-align:top}
+th{background:#edf3f5}figure{margin:24px 0}img{max-width:100%;height:auto}@media(max-width:700px){main{margin:0;padding:24px}}
+@media print{body{background:white}main{margin:0;padding:0;border:0}h2{break-after:avoid}table,pre{break-inside:avoid}}
+</style></head><body><main><h1>Understanding the EEG motor-imagery experiment</h1>
+<p>This report explains the notebook from the recording through the final scores. The experiment asks whether a model trained on one person&#x27;s first recording session can recognise four imagined movements in their second session. It compares a spatial-feature baseline with a small convolutional network.</p>
+<h2>What an EEG electrode records</h2>
+<p>EEG measures voltage differences at the scalp. Neurons move charged ions across their membranes, and coordinated activity from large populations produces electrical fields that scalp electrodes can detect. Much of the scalp signal reflects summed postsynaptic activity in cortical neurons. An electrode does not isolate a single neuron: its signal mixes activity over a broad region. The recording also depends on the reference electrode. See the <a href="https://www.ncbi.nlm.nih.gov/books/NBK2510/">NCBI explanation of EEG signal generation</a> and the <a href="https://www.ncbi.nlm.nih.gov/books/NBK11104/">neuroscience chapter on synaptic summation</a>.</p>
+<p>Here, a channel is the voltage trace from one electrode location. A sample is one measurement in time. A trial is the short interval associated with one imagery instruction. The measurements are small, so we often draw them in microvolts: one microvolt is <code>0.000001</code> volt. MNE expects EEG amplitudes in volts.</p>
+<p>Blinking, eye movement, jaw tension, and electrical interference can also appear in EEG recordings. A classifier may learn those signals if they correlate with labels. Excluding the eye channels reduces one obvious source of unwanted input, but eye and muscle activity can still contaminate the scalp channels.</p>
+<h2>Why imagined movement changes the signal</h2>
+<p>During motor imagery, a participant mentally rehearses a movement while staying still. Sensorimotor rhythms can change in strength during this task. The mu rhythm is commonly studied around 8–13 Hz; beta activity around 13–30 Hz is also relevant. Event-related desynchronisation (ERD) describes a reduction in rhythmic power relative to a reference interval; synchronisation (ERS) describes an increase. These terms concern power changes, not the literal disappearance or appearance of brain activity. Pfurtscheller and Lopes da Silva explain the mechanisms and interpretation in their <a href="https://pubmed.ncbi.nlm.nih.gov/10576479/">1999 paper</a>.</p>
+<p>Different imagined movements can produce different spatial and spectral patterns. These patterns vary between people and recordings. That is why this notebook fits a separate model for each person. We expect noisy, overlapping classes; there is no accuracy target built into the code.</p>
+<p>The 8–30 Hz filter focuses the input on the chosen sensorimotor bands. It also removes information outside that range. A wider band could be a separate experiment, with the choice made using training data.</p>
+<h2>The dataset used here</h2>
+<p>BCI Competition IV 2a has nine participants and four classes: left hand, right hand, both feet, and tongue. Each person has two sessions recorded on different days. A session contains six imagery runs of 48 trials, plus separate eye calibration recordings. Signals have 22 EEG and three EOG channels sampled at 250 Hz. The <a href="https://www.bbci.de/competition/iv/desc_2a.pdf">original dataset description</a> shows the electrode layout and task timing.</p>
+<p>The project reads the local BNCI MATLAB representation. The supplied folder initially contained A01T.mat through A09T.mat. The nine E files come from the <a href="https://bnci-horizon-2020.eu/database/data-sets">BNCI catalog</a>, which redirects downloads to a Graz University of Technology mirror. This representation includes the released evaluation labels. <code>data_sources.json</code> records their source URLs, sizes, and SHA-256 hashes. The catalog also gives the data license and citation.</p>
+<p>The <a href="https://github.com/NeuroTechX/moabb/blob/develop/moabb/datasets/bnci/base.py">MOABB loader source</a> documents the microvolt units and 1-based MATLAB marker indexing. We use the same underlying dataset without asking MOABB to download another copy.</p>
+<h2>From a MATLAB recording to NumPy arrays</h2>
+<p><code>scipy.io.loadmat(..., simplify_cells=True)</code> converts the MATLAB structures to Python objects. For each imagery run, the useful fields are:</p>
+<div class="table-wrap"><table><thead><tr><th>Field</th><th>Meaning</th><th>Use in the notebook</th></tr></thead><tbody>
+<tr><td><code>X</code></td><td>Continuous samples × 25 channels, in µV</td><td>Keep the first 22 channels</td></tr>
+<tr><td><code>trial</code></td><td>1-based start sample of each trial</td><td>Convert to zero-based indexing and add the cue offset</td></tr>
+<tr><td><code>y</code></td><td>Class labels 1–4</td><td>Subtract one for PyTorch labels 0–3</td></tr>
+<tr><td><code>fs</code></td><td>Sampling frequency</td><td>Check that it is 250 Hz</td></tr>
+<tr><td><code>artifacts</code></td><td>Expert review flags, 0 or 1</td><td>Exclude marked trials by default</td></tr>
+</tbody></table></div>
+<p>The initial calibration blocks have empty trial lists. They are not imagery examples, so the loader skips them. See the <a href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.io.loadmat.html">SciPy <code>loadmat</code> documentation</a> for the structure conversion.</p>
+<p>The cue appears two seconds after the trial starts. The code adds 500 samples to each zero-based trial start and treats that as cue time. It then takes 0.5–3.5 seconds after the cue, equivalent to 2.5–5.5 seconds after trial start. MNE includes both endpoints, so <code>(3.5 - 0.5) * 250 + 1 = 751</code> samples. Confusing the trial marker with the cue would extract the wrong part of the recording.</p>
+<p>After processing, the arrays have these shapes:</p>
+<pre><code>X.shape  # (retained_trials, 22, 751)
+y.shape  # (retained_trials,)
+
+# Example: the complete, un-rejected session would have 288 trials.
+# Artifact removal changes the first dimension.
+one_channel = X[0, 7, :]   # C3 in the notebook&#x27;s documented channel order
+one_trial = X[0, :, :]     # All electrodes for the first retained trial</code></pre>
+<p>NumPy provides the arrays, MNE handles filtering and epoch construction, scikit-learn handles CSP/LDA, and PyTorch trains EEGNet. Pandas writes tables and Matplotlib draws the figures. The <a href="https://mne.tools/stable/auto_tutorials/intro/10_overview.html">MNE analysis overview</a> explains how Raw, Epochs, and other MNE objects fit together.</p>
+<h2>Preprocessing decisions</h2>
+<p>The loader converts µV to V and filters the continuous EEG in each imagery run with a fourth-order Butterworth 8–30 Hz filter. MNE applies the zero-phase IIR filter forward and backward; the effective response differs from a single pass. Filtering before cutting trials reduces boundary effects at each short epoch. Runs stay separate throughout filtering, including the run held out for validation. See <a href="https://mne.tools/stable/auto_tutorials/preprocessing/25_background_filtering.html">MNE&#x27;s filtering guide</a> for filter responses, ringing, and phase.</p>
+<p>Zero-phase filtering uses samples on both sides of a time point, including future samples. This is appropriate for the stated offline experiment. A live BCI would need a causal filter and validation of its delay and streaming behaviour. The competition&#x27;s original evaluation also imposed causal predictions; fixed-window scores here are not a reproduction of that original procedure.</p>
+<p>By default, <code>DROP_ARTIFACTS = True</code> removes dataset-marked trials in T and E. <code>preprocessing_audit.csv</code> records the total, flagged, and retained counts per run. These flags do not guarantee that all remaining trials are free of artifacts. The notebook performs no ICA or EOG regression. It does not subtract a pre-cue baseline, resample the recordings, or change their reference.</p>
+<h2>How CSP + LDA learns</h2>
+<p>An electrode contains a mixture of electrical sources. CSP learns new channel combinations, called spatial filters, using the training labels. For an input trial matrix <code>E</code> with channels × time, a filter matrix <code>W</code> gives <code>Z = W @ E</code>. The transformed signals emphasise variance patterns that distinguish classes. MNE supports the multiclass version used here. See the <a href="https://mne.tools/stable/generated/mne.decoding.CSP.html">CSP API</a>.</p>
+<p>The baseline retains six components. For each trial it calculates a log-power feature for each component, resulting in a small feature vector. LDA learns class-dependent means and a pooled covariance from these vectors. Shrinkage helps covariance estimation with limited observations. The settings use Ledoit-Wolf regularisation for CSP and automatic shrinkage for LDA.</p>
+<p>The scikit-learn pipeline fits both stages on session T, then transforms and predicts session E. Fitting CSP before a split would leak label information into the representation. If you add cross-validation, put the whole pipeline inside each fold. The <a href="https://mne.tools/stable/auto_examples/decoding/decoding_csp_eeg.html">MNE motor-imagery example</a> is a useful next exercise.</p>
+<h2>How EEGNet learns</h2>
+<p>EEGNet receives a tensor shaped <code>(batch, 1, 22, 751)</code>. The extra dimension makes the array compatible with PyTorch&#x27;s two-dimensional convolutions. Electrode locations form one axis and time forms the other.</p>
+<div class="table-wrap"><table><thead><tr><th>Stage</th><th>Operation</th><th>Purpose</th></tr></thead><tbody>
+<tr><td>Temporal</td><td>Eight convolutions along time</td><td>Learn short temporal patterns</td></tr>
+<tr><td>Spatial</td><td>Two depthwise filters per temporal filter across 22 channels</td><td>Learn electrode mixtures</td></tr>
+<tr><td>First pool</td><td>ELU, batch normalization, average pooling by 4, dropout</td><td>Reduce the time axis and regularise</td></tr>
+<tr><td>Separable</td><td>Depthwise temporal convolution, then 1×1 mixing</td><td>Refine patterns and combine features</td></tr>
+<tr><td>Second pool</td><td>ELU, batch normalization, average pooling by 8, dropout</td><td>Reduce the representation further</td></tr>
+<tr><td>Classifier</td><td>Flatten and linear layer</td><td>Produce four class logits</td></tr>
+</tbody></table></div>
+<p>The model follows the EEGNet-8,2 structure with temporal kernels of 64 and 16 samples and dropout of 0.5. At 250 Hz, the first kernel spans 0.256 seconds. The code constrains spatial and classifier weight norms. It uses Adam with weight decay, a project choice beyond the basic architecture. Read the <a href="https://arxiv.org/abs/1611.08024">EEGNet paper</a> and <a href="https://github.com/vlawhern/arl-eegmodels">authors&#x27; code</a> for the original design.</p>
+<p>Cross-entropy compares the logits with the correct class. Backpropagation calculates how each parameter affects the loss, and Adam updates the parameters. <code>nn.CrossEntropyLoss</code> expects logits, so the model does not put a softmax layer before the training loss. See <a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html">PyTorch&#x27;s loss documentation</a>.</p>
+<p>EEGNet can learn useful features, but it has more freedom to overfit than the baseline. Its accuracy need not exceed CSP + LDA, especially with a small training session. The comparison should be settled by held-out scores.</p>
+<h2>What is kept out of training</h2>
+<p>Each person has their own T→E evaluation:</p>
+<pre><code>T runs 1–5 -&gt; fit normalization and EEGNet weights
+T run 6   -&gt; validation loss selects the epoch count
+all T     -&gt; fit new normalization and train a fresh EEGNet for that count
+E         -&gt; transform using all-T statistics, predict, and score once
+
+all T     -&gt; fit CSP + LDA
+E         -&gt; transform with fitted CSP, predict with fitted LDA, and score</code></pre>
+<p>The validation split uses complete runs rather than randomly mixing trials from the same recording run. During selection, channel means and standard deviations come only from fitting runs 1–5. A new fit on all T computes the final statistics. The E data never defines those statistics. CSP and LDA also fit on T only.</p>
+<p>Early stopping uses validation loss, with a patience of 50 and improvement tolerance of <code>1e-4</code>. Selection has a maximum of 300 epochs. The best validation epoch determines the final training budget; the final model is a fresh refit, not the last model from selection. Curves record the selection stage.</p>
+<p>The random seed is fixed per subject (<code>42 + subject</code>). CUDA settings request deterministic cuDNN behaviour. Identical results across different hardware, library versions, and drivers are not guaranteed; each run records its versions.</p>
+<h2>Reading the outputs</h2>
+<p>Accuracy is the fraction of E trials with the right predicted label. Cohen&#x27;s kappa adjusts for expected agreement from the true and predicted class frequencies. For a balanced example with chance agreement of 0.25, an accuracy of 0.70 gives <code>(0.70 - 0.25) / (1 - 0.25) = 0.60</code> kappa. This is an arithmetic example, not a measured project result.</p>
+<p>The confusion matrix has true classes in rows and predicted classes in columns. The diagonal contains correct trials. A large value in the left-hand row and right-hand column means left-hand trials were often mistaken for right-hand trials. Per-subject figures show counts; pooled figures show row percentages with counts. The percentage denominator is the total number of true trials in that row.</p>
+<p>Training accuracy uses dropout while validation accuracy uses evaluation mode, so their values are not measured under identical network conditions. Falling training loss with rising validation loss suggests overfitting. A noisy validation curve is plausible when the held-out run has only a few dozen trials. Validation accuracy is not the final E accuracy.</p>
+<p><code>summary.csv</code> averages subject scores without weighting by trial count. Its standard deviations describe variation across subjects, not confidence intervals. With a single subject, standard deviation is undefined. The majority-class reference chooses its class from T counts and scores that fixed prediction on E. It helps contextualise uneven class counts after rejection.</p>
+<h2>Results and their limits</h2>
+<p>The verified nine-subject run gave these subject-averaged scores:</p>
+<div class="table-wrap"><table><thead><tr><th>Model</th><th>Mean accuracy</th><th>Mean kappa</th></tr></thead><tbody>
+<tr><td>CSP+LDA</td><td>62.0%</td><td>0.495</td></tr>
+<tr><td>EEGNet</td><td>54.2%</td><td>0.388</td></tr>
+</tbody></table></div>
+<p>EEGNet performs near chance for subjects 2, 5, 6, and 7 in this run. The validation loss selects short training budgets for these subjects. The baseline has the higher mean accuracy for the present settings. See <a href="VERIFICATION.md">VERIFICATION.md</a> for the per-subject table and checks.</p>
+<figure><img src="results/20260916_013501_019980/plots/subject_comparison.png" alt="Accuracy by subject"></figure>
+<p>Per-subject results and completed checks are recorded in <code>VERIFICATION.md</code> and the corresponding dated results folder. Do not replace measurements with expected benchmark values. The notebook saves the exact settings, input hashes, retained trial identities, model-selection history, and predictions for each run.</p>
+<p>This is within-subject transfer between recording sessions. It cannot establish accuracy for a new person, clinical usefulness, or a live device. Scores also depend on filtering, epoch timing, artifact exclusion, validation choices, and random initialisation. Comparing a number with a paper requires matching its protocol. The <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC3396284/">competition review</a> provides context for the datasets and original scoring.</p>
+<p>Further experiments could use nested run-wise validation on T to compare frequency bands or CSP component counts, repeat neural-network training across seeds, or investigate filter-bank CSP. Make these choices without using E as a tuning set. Once E results guide changes, describe E as development data for those comparisons and reserve another untouched test set for a final claim.</p>
+<h2>A practical reading route</h2>
+<div class="table-wrap"><table><thead><tr><th>Start here</th><th>What to learn</th><th>Try in this project</th></tr></thead><tbody>
+<tr><td><a href="https://www.ncbi.nlm.nih.gov/books/NBK2510/">EEG signal generation</a></td><td>How population activity reaches scalp electrodes</td><td>Explain why one channel mixes sources</td></tr>
+<tr><td><a href="https://pubmed.ncbi.nlm.nih.gov/10576479/">ERD/ERS paper</a></td><td>Why power changes during tasks</td><td>Compare class-averaged spectra on T only</td></tr>
+<tr><td><a href="https://www.bbci.de/competition/iv/desc_2a.pdf">Dataset description</a></td><td>Cue timing, montage, trial design</td><td>Verify the two-second cue offset</td></tr>
+<tr><td><a href="https://mne.tools/stable/auto_tutorials/intro/10_overview.html">MNE overview</a></td><td>Raw recordings and epochs</td><td>Inspect the Raw and Epochs objects in the loader</td></tr>
+<tr><td><a href="https://mne.tools/stable/auto_tutorials/preprocessing/25_background_filtering.html">Filtering background</a></td><td>Filter phase and frequency response</td><td>Plot the response of the selected bandpass</td></tr>
+<tr><td><a href="https://mne.tools/stable/auto_examples/decoding/decoding_csp_eeg.html">CSP tutorial</a></td><td>Spatial filters and feature classification</td><td>Fit CSP inside a T-only validation fold</td></tr>
+<tr><td><a href="https://arxiv.org/abs/1611.08024">EEGNet paper</a></td><td>Compact temporal and spatial CNNs</td><td>Follow the tensor shape after each block</td></tr>
+<tr><td><a href="https://docs.pytorch.org/docs/stable/generated/torch.nn.CrossEntropyLoss.html">PyTorch cross-entropy</a></td><td>Logits and supervised loss</td><td>Inspect four logits from one trial</td></tr>
+</tbody></table></div>
+<p>To trace the implementation, start with <code>load_session</code>, then <code>make_baseline</code>, <code>EEGNet.forward</code>, and <code>fit_eegnet</code>. Follow <code>X</code> and <code>y</code> through each stage before changing hyperparameters. The README contains the VS Code and Anaconda launch commands.</p></main></body></html>

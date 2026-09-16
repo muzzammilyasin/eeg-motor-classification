@@ -1,0 +1,60 @@
+{
+  "catalog": "https://bnci-horizon-2020.eu/database/data-sets",
+  "dataset": "BNCI 2014-001 / BCI Competition IV 2a",
+  "evaluation_files": [
+    {
+      "file": "A01E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A01E.mat",
+      "bytes": 43772146,
+      "sha256": "53d415f39c3d7b0c88b894d7b08d99bcdfe855ede63831d3691af1a45607fb62"
+    },
+    {
+      "file": "A02E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A02E.mat",
+      "bytes": 44218409,
+      "sha256": "d63c454005d3a9b41d8440629482e855afc823339bdd0b5721842a7ee9cc7b12"
+    },
+    {
+      "file": "A03E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A03E.mat",
+      "bytes": 42316292,
+      "sha256": "d4229267ec7624fa8bd3af5cbebac17f415f7c722de6cb676748f8cb3b717d97"
+    },
+    {
+      "file": "A04E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A04E.mat",
+      "bytes": 41730824,
+      "sha256": "81916dff2c12997974ba50ffc311da006ea66e525010d010765f0047e771c86a"
+    },
+    {
+      "file": "A05E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A05E.mat",
+      "bytes": 44392496,
+      "sha256": "8b357470865610c28b2f1d351beac247a56a856f02b2859d650736eb2ef77808"
+    },
+    {
+      "file": "A06E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A06E.mat",
+      "bytes": 43395510,
+      "sha256": "bf67a40621b74b6af7a986c2f6edfff7fc2bbbca237aadd07b575893032998d1"
+    },
+    {
+      "file": "A07E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A07E.mat",
+      "bytes": 42242294,
+      "sha256": "b9aaec73dcee002fab84ee98e938039a67bf6a3cbf4fc86d5d8df198cfe4c323"
+    },
+    {
+      "file": "A08E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A08E.mat",
+      "bytes": 46282127,
+      "sha256": "0eedbd89790c7d621c8eef68065ddecf80d437bbbcf60321d9253e2305f294f7"
+    },
+    {
+      "file": "A09E.mat",
+      "url": "https://bnci-horizon-2020.eu/database/data-sets/001-2014/A09E.mat",
+      "bytes": 44780912,
+      "sha256": "5d79649a42df9d51215def8ffbdaf1c3f76c54b88b9bbaae721e8c6fd972cc36"
+    }
+  ]
+}

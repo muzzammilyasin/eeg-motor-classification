@@ -1,0 +1,49 @@
+# Local dataset and archives
+/BCICIV 2a Motor Imagery EEG Dataset/
+/data/
+/archive.zip
+*.mat
+*.gdf
+*.edf
+*.bdf
+*.fif
+*.fif.gz
+*.npz
+*.npy
+*.zip
+*.7z
+*.rar
+*.part
+
+# Model weights and experiment caches
+*.pt
+*.pth
+*.ckpt
+*.pkl
+*.pickle
+*.joblib
+/results/**/models/
+/results/**/cache/
+/results/latest_verified_run.txt
+
+# Python and notebooks
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
